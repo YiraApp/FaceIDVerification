@@ -222,7 +222,31 @@ class FaceVerificationService:
             else:
                 threshold = settings.default_similarity_threshold
             
-            match = similarity >= threshold
+            # Determine confidence level and manual review requirement
+            confidence_level = None
+            requires_manual_review = False
+            match = False
+            
+            if similarity >= settings.high_confidence_threshold:
+                # High confidence match
+                match = True
+                confidence_level = "HIGH"
+                requires_manual_review = False
+            elif similarity >= threshold:
+                # Medium confidence match
+                match = True
+                confidence_level = "MEDIUM"
+                requires_manual_review = False
+            elif similarity >= (threshold - settings.tolerance_band):
+                # Within tolerance band - recommend manual review
+                match = True
+                confidence_level = "LOW"
+                requires_manual_review = True
+            else:
+                # No match
+                match = False
+                confidence_level = "NO_MATCH"
+                requires_manual_review = False
             
             # Calculate confidence
             if settings.use_random_confidence:
@@ -237,7 +261,9 @@ class FaceVerificationService:
                 "similarity": round(similarity, 3),
                 "threshold_used": threshold,
                 "match": bool(match),
-                "confidence": confidence
+                "confidence": confidence,
+                "confidence_level": confidence_level,
+                "requires_manual_review": requires_manual_review
             }
         
         except Exception as e:

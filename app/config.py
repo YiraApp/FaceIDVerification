@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     low_quality_threshold: int = 70
     high_similarity_threshold: float = 0.33
     default_similarity_threshold: float = 0.45
+    tolerance_band: float = 0.03  # Tolerance for manual review zone
+    high_confidence_threshold: float = 0.50  # Threshold for high confidence matches
     
     # Random Confidence Settings (for testing)
     use_random_confidence: bool = True

@@ -83,5 +83,6 @@ tmp/
 *.sqlite
 *.sqlite3
 
-# Original file (already converted)
+#Original File - not needed
 faceidverification_final.py
+

@@ -1,9 +1,10 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, status
 from fastapi.responses import JSONResponse
 import logging
+import time
 from contextlib import asynccontextmanager
 
-from app.models import VerificationResponse, StatusResponse, ModelInfoResponse
+from app.models import ApiResponse, VerificationData, StatusResponse, ModelInfoResponse
 from app.services.face_verification import face_service
 from app.config import settings
 
@@ -79,7 +80,7 @@ async def model_info():
     )
 
 
-@app.post("/api/verify-face", response_model=VerificationResponse, tags=["Verification"])
+@app.post("/api/verify-face", response_model=ApiResponse, response_model_exclude_none=True, tags=["Verification"])
 async def verify_face(
     file: UploadFile = File(..., description="PDF file containing ID photo and selfie (2 pages minimum)")
 ):
@@ -92,21 +93,39 @@ async def verify_face(
     
     The API will extract faces from both pages and compare them.
     
-    Returns:
+    Response Format:
+    - status: true/false (whether API executed successfully)
+    - message: "success" or error description
+    - data: Verification results (only present when status is true)
+    
+    Data Fields (when status is true):
     - status: SUCCESS or FAILED
     - match: True if faces match, False otherwise
     - confidence: Confidence score (0-100)
+    - confidence_level: Categorized confidence (HIGH, MEDIUM, LOW, NO_MATCH)
+    - requires_manual_review: True if similarity is in tolerance band
     - similarity: Cosine similarity score (0-1)
     - quality_1, quality_2: Quality scores for each face
     - threshold_used: Similarity threshold applied
+    - processing_time_seconds: Time taken to process the request
     - reason: Error message if verification failed
+    
+    Confidence Levels:
+    - HIGH: similarity >= 0.50 (Strong match)
+    - MEDIUM: similarity >= threshold (0.45) (Good match)
+    - LOW: similarity >= (threshold - 0.03) (Borderline - manual review recommended)
+    - NO_MATCH: similarity < (threshold - 0.03) (No match)
     """
+    
+    # Start timing
+    start_time = time.time()
     
     # Validate file type
     if not file.filename.lower().endswith('.pdf'):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only PDF files are allowed"
+        return ApiResponse(
+            status=False,
+            message="Only PDF files are allowed",
+            data=None
         )
     
     try:
@@ -115,31 +134,41 @@ async def verify_face(
         
         # Validate file size
         if len(pdf_bytes) > settings.max_file_size:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"File size exceeds maximum allowed size of {settings.max_file_size / (1024*1024)}MB"
+            return ApiResponse(
+                status=False,
+                message=f"File size exceeds maximum allowed size of {settings.max_file_size / (1024*1024)}MB",
+                data=None
             )
         
         # Perform face verification
         logger.info(f"Processing file: {file.filename}")
         result = face_service.compare_faces_from_pdf(pdf_bytes)
         
-        # Return appropriate status code
-        if result["status"] == "FAILED":
-            return JSONResponse(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                content=result
-            )
+        # Calculate processing time
+        processing_time = round(time.time() - start_time, 2)
+        result["processing_time_seconds"] = processing_time
         
-        return result
+        logger.info(f"Processing completed in {processing_time}s")
+        
+        # Remove null/None values from result
+        filtered_result = {k: v for k, v in result.items() if v is not None}
+        
+        # Create VerificationData object
+        verification_data = VerificationData(**filtered_result)
+        
+        # Return success response with data
+        return ApiResponse(
+            status=True,
+            message="success",
+            data=verification_data
+        )
     
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error: {str(e)}"
+        return ApiResponse(
+            status=False,
+            message=f"Internal server error: {str(e)}",
+            data=None
         )
 
 
