@@ -240,7 +240,7 @@ async def status_check():
 
 
 # -------------------------------------------------
-# Face Verification (40 CONCURRENT REQUESTS)
+# Face Verification (40 CONCURRENT REQUESTS - 4 WORKERS)
 # -------------------------------------------------
 @app.post("/api/verify-face", response_model=ApiResponse)
 async def verify_face(
@@ -294,7 +294,7 @@ if __name__ == "__main__":
         "app.main:app",  # Fixed module path for multi-worker
         host="0.0.0.0",
         port=8000,
-        workers=2,  # 2 workers × 20 threads = 40 concurrent requests
-        limit_concurrency=20  # Thread pool size per worker
+        workers=4,  # 4 workers × 10 threads = 40 concurrent requests
+        limit_concurrency=10  # Thread pool size per worker
     )
 
