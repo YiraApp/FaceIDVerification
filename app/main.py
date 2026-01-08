@@ -176,21 +176,21 @@
 #     import uvicorn
 #     uvicorn.run(app, host="0.0.0.0", port=8000)
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, status
+from fastapi import FastAPI, File, UploadFile
 from fastapi.concurrency import run_in_threadpool
 import logging
 import time
 from contextlib import asynccontextmanager
-import anyio
 
 from app.models import ApiResponse, VerificationData, StatusResponse, ModelInfoResponse
 from app.services.face_verification import face_service
 from app.config import settings
 
 # -------------------------------------------------
-# INCREASE THREADPOOL SIZE (VERY IMPORTANT)
+# Thread Pool Configuration
 # -------------------------------------------------
-anyio.to_thread.current_default_thread_limiter().total_tokens = 40
+# 20 threads per worker × 2 workers = 40 concurrent requests
+# Set via environment variable ANYIO_THREAD_POOL_SIZE or uvicorn limit_concurrency
 
 # -------------------------------------------------
 # Logging
@@ -240,7 +240,7 @@ async def status_check():
 
 
 # -------------------------------------------------
-# Face Verification (30 PARALLEL JOBS)
+# Face Verification (40 CONCURRENT REQUESTS)
 # -------------------------------------------------
 @app.post("/api/verify-face", response_model=ApiResponse)
 async def verify_face(
@@ -256,21 +256,33 @@ async def verify_face(
     if len(pdf_bytes) > settings.max_file_size:
         return ApiResponse(status=False, message="File too large")
 
-    # 🔥 PARALLEL EXECUTION (NO LOCK)
-    result = await run_in_threadpool(
-        face_service.compare_faces_from_pdf,
-        pdf_bytes
-    )
+    # Validate PDF magic bytes
+    if not pdf_bytes.startswith(b'%PDF'):
+        return ApiResponse(status=False, message="Invalid PDF file")
 
-    result["processing_time_seconds"] = round(time.time() - start_time, 2)
+    try:
+        # 🔥 PARALLEL EXECUTION (NO LOCK)
+        result = await run_in_threadpool(
+            face_service.compare_faces_from_pdf,
+            pdf_bytes
+        )
 
-    verification_data = VerificationData(**result)
+        result["processing_time_seconds"] = round(time.time() - start_time, 2)
 
-    return ApiResponse(
-        status=True,
-        message="success",
-        data=verification_data
-    )
+        verification_data = VerificationData(**result)
+
+        return ApiResponse(
+            status=True,
+            message="success",
+            data=verification_data
+        )
+    
+    except Exception as e:
+        logger.error(f"Verification failed: {str(e)}")
+        return ApiResponse(
+            status=False,
+            message=f"Processing error: {str(e)}"
+        )
 
 
 # -------------------------------------------------
@@ -279,9 +291,10 @@ async def verify_face(
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        "main:app",
+        "app.main:app",  # Fixed module path for multi-worker
         host="0.0.0.0",
         port=8000,
-        workers=4  # 🔥 MULTIPLE PROCESSES
+        workers=2,  # 2 workers × 20 threads = 40 concurrent requests
+        limit_concurrency=20  # Thread pool size per worker
     )
 

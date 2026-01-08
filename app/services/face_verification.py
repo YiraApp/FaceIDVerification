@@ -5,6 +5,7 @@ from insightface.app import FaceAnalysis
 from numpy.linalg import norm
 import fitz
 import logging
+import threading
 from typing import Optional, Dict, Any, List, Tuple
 
 from app.config import settings
@@ -16,20 +17,32 @@ class FaceVerificationService:
     """Service class for face verification operations"""
     
     def __init__(self):
-        self.app: Optional[FaceAnalysis] = None
+        self._thread_local = threading.local()  # Each thread gets its own storage
         self.model_loaded = False
     
     def initialize_model(self):
-        """Initialize the InsightFace model"""
+        """Initialize the model loading flag"""
         try:
-            logger.info("Initializing Face Analysis Model...")
-            self.app = FaceAnalysis(name=settings.model_name)
-            self.app.prepare(ctx_id=settings.ctx_id, det_size=settings.detection_size)
+            logger.info("Face verification service ready")
             self.model_loaded = True
-            logger.info("Face Analysis Model initialized successfully!")
+            logger.info("Service initialized - models will load per-thread on first use")
         except Exception as e:
-            logger.error(f"Failed to initialize model: {str(e)}")
+            logger.error(f"Failed to initialize service: {str(e)}")
             raise
+    
+    def _get_model(self) -> FaceAnalysis:
+        """Get or create InsightFace model for current thread"""
+        if not hasattr(self._thread_local, 'app'):
+            # First time this thread is using the model - load it
+            thread_name = threading.current_thread().name
+            logger.info(f"Loading InsightFace model for thread: {thread_name}")
+            
+            self._thread_local.app = FaceAnalysis(name=settings.model_name)
+            self._thread_local.app.prepare(ctx_id=settings.ctx_id, det_size=settings.detection_size)
+            
+            logger.info(f"Model loaded successfully for thread: {thread_name}")
+        
+        return self._thread_local.app
     
     def extract_images_from_pdf(self, pdf_bytes: bytes) -> List[np.ndarray]:
         """
@@ -102,6 +115,8 @@ class FaceVerificationService:
         Returns:
             Tuple of (embedding, quality_score, face_object, rotated_image)
         """
+        app = self._get_model()  # Get thread-local model
+        
         h, w = img.shape[:2]
         best_embedding = None
         best_quality = 0
@@ -119,7 +134,7 @@ class FaceVerificationService:
             else:
                 test_img = img
             
-            faces = self.app.get(test_img)
+            faces = app.get(test_img)  # Use thread-local model
             if not faces:
                 continue
             
