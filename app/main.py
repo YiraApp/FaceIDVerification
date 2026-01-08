@@ -209,8 +209,34 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     logger.info("Starting Face ID Verification API")
 
+    # Initialize service (downloads model files)
     face_service.initialize_model()
-    logger.info("Model loaded")
+    logger.info("Model files downloaded")
+    
+    # Pre-warm threads by loading models
+    logger.info("Pre-warming threads (loading models for all workers)...")
+    import concurrent.futures
+    
+    def warm_thread(thread_id):
+        """Load model for this thread"""
+        try:
+            # This triggers model loading for this thread
+            _ = face_service._get_model()
+            logger.info(f"Thread {thread_id} warmed up successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to warm thread {thread_id}: {e}")
+            return False
+    
+    # Warm up threads (limit_concurrency from uvicorn config)
+    num_threads = 10  # Should match limit_concurrency setting
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+        futures = [executor.submit(warm_thread, i) for i in range(num_threads)]
+        results = [f.result() for f in concurrent.futures.as_completed(futures)]
+    
+    successful = sum(results)
+    logger.info(f"Pre-warming complete: {successful}/{num_threads} threads ready")
+    logger.info("API ready to accept requests")
 
     yield
 

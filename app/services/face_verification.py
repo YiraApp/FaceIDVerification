@@ -50,21 +50,18 @@ class FaceVerificationService:
     def _get_model(self) -> FaceAnalysis:
         """Get or create InsightFace model for current thread"""
         if not hasattr(self._thread_local, 'app'):
-            # Use lock to prevent multiple threads in same process from loading simultaneously
-            with self._model_init_lock:
-                # Double-check after acquiring lock
-                if not hasattr(self._thread_local, 'app'):
-                    thread_name = threading.current_thread().name
-                    logger.info(f"Loading model instance for thread: {thread_name}")
-                    
-                    try:
-                        # Model files are already downloaded, this just loads them into memory
-                        self._thread_local.app = FaceAnalysis(name=settings.model_name)
-                        self._thread_local.app.prepare(ctx_id=settings.ctx_id, det_size=settings.detection_size)
-                        logger.info(f"Model loaded successfully for thread: {thread_name}")
-                    except Exception as e:
-                        logger.error(f"Failed to load model for thread {thread_name}: {str(e)}")
-                        raise
+            thread_name = threading.current_thread().name
+            logger.info(f"Loading model instance for thread: {thread_name}")
+            
+            try:
+                # Model files are already downloaded during startup
+                # Multiple threads can safely load from the same files in parallel
+                self._thread_local.app = FaceAnalysis(name=settings.model_name)
+                self._thread_local.app.prepare(ctx_id=settings.ctx_id, det_size=settings.detection_size)
+                logger.info(f"Model loaded successfully for thread: {thread_name}")
+            except Exception as e:
+                logger.error(f"Failed to load model for thread {thread_name}: {str(e)}")
+                raise
         
         return self._thread_local.app
     
