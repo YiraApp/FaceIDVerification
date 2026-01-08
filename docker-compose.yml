@@ -1,0 +1,30 @@
+version: "3.8"
+
+services:
+  medical-parser-api:
+    build: .
+    container_name: Faceapi
+    ports:
+      - "8005:8005"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - AZURE_STORAGE_CONNECTION_STRING=${AZURE_STORAGE_CONNECTION_STRING}
+    volumes:
+      - ./temp_uploads:/app/temp_uploads
+      - ./pdfs:/app/pdfs
+    restart: unless-stopped
+
+    # 🔥 PRODUCTION COMMAND (KEY CHANGE)
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8005
+      --workers 30
+      --limit-concurrency 1
+      --log-level info
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
