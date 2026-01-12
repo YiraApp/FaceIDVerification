@@ -28,5 +28,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Use environment variables for configuration
+ENV PORT=${PORT:-8000}
+
+
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --timeout-keep-alive 65 --timeout-graceful-shutdown 30"]
 
